@@ -7,7 +7,6 @@ import (
 	"io"
 	"io/ioutil"
 	"log"
-	"net"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -64,7 +63,7 @@ func RealAllDirFile(sftp *sftp.Client, itemdstDirName string) (Listfilenamepaths
 	if strings.Contains(itemdstDirName, "*.") {
 		matches, err := sftp.Glob(itemdstDirName)
 		if err != nil {
-			log.Println("Glob error for %s : %s", itemdstDirName, err)
+			log.Printf("Glob error for %s : %s\n", itemdstDirName, err)
 		}
 
 		for _, matchesFileItem := range matches {
@@ -224,11 +223,6 @@ func main() {
 	mw := io.MultiWriter(os.Stdout, flogFile)
 	log.SetOutput(mw)
 
-	// start time
-	t := time.Now()
-	dirtimename := (t.Format("20060102_150405"))
-	dstPath := ("getLogs_" + dirtimename)
-
 	startTime := time.Now()
 
 	// read yaml config
@@ -236,200 +230,188 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+
 	var yamlconfig yamlinstanceConfig
 	if err := yamlconfig.Parse(data); err != nil {
 		log.Fatal(err)
 	}
 	//log.Println(yamlconfig)
+	// start time
+	/*
+		var pSSHHostname = net.ParseIP(yamlconfig.SSHHostname)
+		if pSSHHostname == nil {
+			log.Fatal(1)
+		}*/
 
-	var pSSHHostname = net.ParseIP(yamlconfig.SSHHostname)
-	if pSSHHostname == nil {
-		log.Fatal(1)
-	}
+	sshHosts := strings.Split(yamlconfig.SSHHostname, ",")
 
-	//gey ssh keys
-	key, err := getKeyFile(yamlconfig)
-	if err != nil {
-		log.Fatal(err)
+	for _, sshHost := range sshHosts {
 
-	}
+		sshHost = strings.TrimSpace(sshHost)
+		t := time.Now()
+		dirtimename := (t.Format("20060102_150405"))
+		os.Mkdir(dirtimename, os.ModePerm)
 
-	// ssh prepare connection
-	sshConfig := &ssh.ClientConfig{
-		User:            yamlconfig.SSHUsername,
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
-		Auth: []ssh.AuthMethod{
-			ssh.Password(yamlconfig.SSHPassword), ssh.PublicKeys(key),
-		},
-	}
+		dstPath := filepath.Join(dirtimename, sshHost)
 
-	sshConfig.SetDefaults()
+		//gey ssh keys
+		key, err := getKeyFile(yamlconfig)
+		if err != nil {
+			log.Fatal(err)
 
-	sshclient, err := ssh.Dial("tcp", yamlconfig.SSHHostname+":"+yamlconfig.SSHPort, sshConfig)
-	if err != nil {
-		panic("Failed to dial: " + err.Error())
-	}
+		}
 
-	log.Println("Successfully connected to ssh:", pSSHHostname)
+		// ssh prepare connection
+		sshConfig := &ssh.ClientConfig{
+			User:            yamlconfig.SSHUsername,
+			HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+			Auth: []ssh.AuthMethod{
+				ssh.Password(yamlconfig.SSHPassword), ssh.PublicKeys(key),
+			},
+		}
 
-	// open an SFTP session over an existing ssh connection.
-	sftp, err := sftp.NewClient(sshclient)
-	if err != nil {
-		log.Fatal(err)
-	}
+		sshConfig.SetDefaults()
 
-	// count number of files  and tasks
-	var icountFiles int64
-	var icounttasks int64
+		sshclient, err := ssh.Dial("tcp", sshHost+":"+yamlconfig.SSHPort, sshConfig)
+		if err != nil {
+			panic("Failed to dial: " + err.Error())
+		}
 
-	// var payload
-	var sshpayload bytes.Buffer
+		log.Println("Successfully connected to ssh:", sshHost)
 
-	// main loop to get all files
-	mapofgetfilesSort := sortMapbykeys(yamlconfig.Getfiles)
-	for _, keysorted := range mapofgetfilesSort {
-		ldstDirName := (yamlconfig.Getfiles[keysorted])
-		log.Println("running get files:", keysorted)
+		// open an SFTP session over an existing ssh connection.
+		sftp, err := sftp.NewClient(sshclient)
+		if err != nil {
+			log.Fatal(err)
+		}
 
-		//process dir ,first
-		if keysorted != "filesindividual" {
+		// count number of files  and tasks
+		var icountFiles int64
+		var icounttasks int64
 
-			for _, itemdstDirName := range ldstDirName {
+		// var payload
+		var sshpayload bytes.Buffer
 
-				// get all dir/subdir/files
-				Listfilenamepathsrc := RealAllDirFile(sftp, itemdstDirName)
+		// main loop to get all files
+		mapofgetfilesSort := sortMapbykeys(yamlconfig.Getfiles)
+		for _, keysorted := range mapofgetfilesSort {
+			ldstDirName := (yamlconfig.Getfiles[keysorted])
+			log.Println("running get files:", keysorted)
 
-			GOTOTOP:
-				for _, filenamepathsrc := range Listfilenamepathsrc {
+			//process dir ,first
+			if keysorted != "filesindividual" {
 
-					// check if file exist on list of exceptions
-					if yamlconfig.Exceptfiles[filenamepathsrc] != nil {
-						continue GOTOTOP
+				for _, itemdstDirName := range ldstDirName {
+
+					// get all dir/subdir/files
+					Listfilenamepathsrc := RealAllDirFile(sftp, itemdstDirName)
+
+				GOTOTOP:
+					for _, filenamepathsrc := range Listfilenamepathsrc {
+
+						// check if file exist on list of exceptions
+						if yamlconfig.Exceptfiles[filenamepathsrc] != nil {
+							continue GOTOTOP
+						}
+
+						// get  file name
+						_, filenamepathdstFile := filepath.Split(filenamepathsrc)
+
+						filenamepathdstFile = filepath.Base(filenamepathdstFile)
+
+						//skip files "lost+found
+						if filenamepathdstFile == "lost+found" {
+							continue GOTOTOP
+						}
+
+						//  copy file from remote machine
+						getIndividualFile(sftp, filenamepathsrc, dstPath)
+						if err != nil {
+							log.Fatal(err)
+						}
+						icountFiles = icountFiles + 1
 					}
 
-					// get  file name
-					_, filenamepathdstFile := filepath.Split(filenamepathsrc)
+				}
 
-					filenamepathdstFile = filepath.Base(filenamepathdstFile)
+			} else {
 
-					//skip files "lost+found
-					if filenamepathdstFile == "lost+found" {
-						continue GOTOTOP
-					}
+				// process individual files
+				for _, itemdstDirName := range ldstDirName {
 
 					//  copy file from remote machine
-					getIndividualFile(sftp, filenamepathsrc, dstPath)
+					getIndividualFile(sftp, itemdstDirName, dstPath)
 					if err != nil {
 						log.Fatal(err)
 					}
 					icountFiles = icountFiles + 1
 				}
-
 			}
 
-		} else {
-
-			// process individual files
-			for _, itemdstDirName := range ldstDirName {
-
-				//  copy file from remote machine
-				getIndividualFile(sftp, itemdstDirName, dstPath)
-				if err != nil {
-					log.Fatal(err)
-				}
-				icountFiles = icountFiles + 1
-			}
 		}
 
-	}
+		// execute task
+		mapoftasksSort := sortMapofMapsbykeys(yamlconfig.ExecuteTasks)
 
-	// execute task
-	mapoftasksSort := sortMapofMapsbykeys(yamlconfig.ExecuteTasks)
+		// integer for iterate task
+		var i64iterate int64 = -1
+		var getsshlistvms []string
 
-	// integer for iterate task
-	var i64iterate int64 = -1
-	var getsshlistvms []string
+		for _, keysorted := range mapoftasksSort {
+			mapoftasks := (yamlconfig.ExecuteTasks[keysorted])
+			log.Println("running task:", keysorted)
 
-	for _, keysorted := range mapoftasksSort {
-		mapoftasks := (yamlconfig.ExecuteTasks[keysorted])
-		log.Println("running task:", keysorted)
+			//taskexecute
+			getlistoftasks := mapoftasks["taskexecute"]
 
-		//taskexecute
-		getlistoftasks := mapoftasks["taskexecute"]
+			if getlistoftasks != "" {
+				log.Println("taskexecute:", getlistoftasks)
 
-		if getlistoftasks != "" {
-			log.Println("taskexecute:", getlistoftasks)
+				//non iterate
+				if i64iterate == -1 {
+					//sshlistvms:
+					if strings.Contains(getlistoftasks, "sshlistvms:") {
 
-			//non iterate
-			if i64iterate == -1 {
-				//sshlistvms:
-				if strings.Contains(getlistoftasks, "sshlistvms:") {
+						getlistoftasks := strings.Replace(getlistoftasks, "sshlistvms:", "", -1)
+						log.Println("sshlistvms:", getsshlistvms)
+						getlistoftasksM := strings.Split(getlistoftasks, ";")
 
-					getlistoftasks := strings.Replace(getlistoftasks, "sshlistvms:", "", -1)
-					log.Println("sshlistvms:", getsshlistvms)
-					getlistoftasksM := strings.Split(getlistoftasks, ";")
+						for _, getonevm := range getsshlistvms {
 
-					for _, getonevm := range getsshlistvms {
+							if getonevm != "" {
+								log.Println("vm:", getonevm)
+								for _, getlistoftasksOne := range getlistoftasksM {
 
-						if getonevm != "" {
-							log.Println("vm:", getonevm)
-							for _, getlistoftasksOne := range getlistoftasksM {
+									log.Println("cmd:", getlistoftasksOne)
 
-								log.Println("cmd:", getlistoftasksOne)
+									// new ssh connection/execute
+									sshsession, err := sshclient.NewSession()
+									if err != nil {
+										log.Fatal("Failed to create session: ", err)
+									}
+									defer sshsession.Close()
 
-								// new ssh connection/execute
-								sshsession, err := sshclient.NewSession()
-								if err != nil {
-									log.Fatal("Failed to create session: ", err)
+									icounttasks = icounttasks + 1
+									sshsession.Stdout = &sshpayload
+
+									// run to each vm
+									getlistoftasks = "ssh " + getonevm + " " + getlistoftasksOne
+									log.Println(getlistoftasks)
+
+									if err := sshsession.Run(getlistoftasks); err != nil {
+										log.Fatal("Failed to run: " + err.Error())
+										log.Println(sshpayload.String())
+									}
+									log.Println("\n", sshpayload.String())
+									sshpayload.Reset()
 								}
-								defer sshsession.Close()
-
-								icounttasks = icounttasks + 1
-								sshsession.Stdout = &sshpayload
-
-								// run to each vm
-								getlistoftasks = "ssh " + getonevm + " " + getlistoftasksOne
-								log.Println(getlistoftasks)
-
-								if err := sshsession.Run(getlistoftasks); err != nil {
-									log.Fatal("Failed to run: " + err.Error())
-									log.Println(sshpayload.String())
-								}
-								log.Println("\n", sshpayload.String())
-								sshpayload.Reset()
 							}
 						}
-					}
 
-					// non sshlistvms:
-				} else {
+						// non sshlistvms:
+					} else {
 
-					// new ssh connection/execute
-					sshsession, err := sshclient.NewSession()
-					if err != nil {
-						log.Fatal("Failed to create session: ", err)
-					}
-					defer sshsession.Close()
-
-					icounttasks = icounttasks + 1
-					sshsession.Stdout = &sshpayload
-					if err := sshsession.Run(getlistoftasks); err != nil {
-						log.Fatal("Failed to run: " + err.Error())
-						log.Println(sshpayload.String())
-					}
-				}
-			} else {
-				//iterate
-				if strings.Contains(getlistoftasks, "iterate") {
-					var i64 int64
-					for i64 = 1; i64 <= i64iterate; i64++ {
-
-						re := regexp.MustCompile("iterate")
-						i64str := strconv.FormatInt(i64, 10)
-						getlistoftasksiter := re.ReplaceAllLiteralString(getlistoftasks, i64str)
-						log.Println("taskexecute:", getlistoftasksiter)
-
-						//new ssh session/execute
+						// new ssh connection/execute
 						sshsession, err := sshclient.NewSession()
 						if err != nil {
 							log.Fatal("Failed to create session: ", err)
@@ -438,76 +420,102 @@ func main() {
 
 						icounttasks = icounttasks + 1
 						sshsession.Stdout = &sshpayload
-						if err := sshsession.Run(getlistoftasksiter); err != nil {
+						if err := sshsession.Run(getlistoftasks); err != nil {
 							log.Fatal("Failed to run: " + err.Error())
 							log.Println(sshpayload.String())
 						}
-						log.Println("\n", sshpayload.String())
-						sshpayload.Reset()
 					}
-					// no more iterate
-					i64iterate = -1
+				} else {
+					//iterate
+					if strings.Contains(getlistoftasks, "iterate") {
+						var i64 int64
+						for i64 = 1; i64 <= i64iterate; i64++ {
+
+							re := regexp.MustCompile("iterate")
+							i64str := strconv.FormatInt(i64, 10)
+							getlistoftasksiter := re.ReplaceAllLiteralString(getlistoftasks, i64str)
+							log.Println("taskexecute:", getlistoftasksiter)
+
+							//new ssh session/execute
+							sshsession, err := sshclient.NewSession()
+							if err != nil {
+								log.Fatal("Failed to create session: ", err)
+							}
+							defer sshsession.Close()
+
+							icounttasks = icounttasks + 1
+							sshsession.Stdout = &sshpayload
+							if err := sshsession.Run(getlistoftasksiter); err != nil {
+								log.Fatal("Failed to run: " + err.Error())
+								log.Println(sshpayload.String())
+							}
+							log.Println("\n", sshpayload.String())
+							sshpayload.Reset()
+						}
+						// no more iterate
+						i64iterate = -1
+					}
+
 				}
 
-			}
+				//taskget
+				getlistoftasks = mapoftasks["taskget"]
+				log.Println("taskget:", getlistoftasks)
 
-			//taskget
-			getlistoftasks = mapoftasks["taskget"]
-			log.Println("taskget:", getlistoftasks)
+				switch getlistoftasks {
 
-			switch getlistoftasks {
+				case "console":
+					log.Println("\n", sshpayload.String())
+					sshpayload.Reset()
 
-			case "console":
-				log.Println("\n", sshpayload.String())
-				sshpayload.Reset()
+				case "none":
+					sshpayload.Reset()
 
-			case "none":
-				sshpayload.Reset()
+				case "iterate":
+					taskgetiterate := sshpayload.String()
+					re := regexp.MustCompile("[0-9]+")
+					ntaskgetiterate := (re.FindAllString(taskgetiterate, -1))
+					i64iterate, _ = strconv.ParseInt(ntaskgetiterate[len(ntaskgetiterate)-1], 10, 32)
+					log.Println("iterate times:", i64iterate)
 
-			case "iterate":
-				taskgetiterate := sshpayload.String()
-				re := regexp.MustCompile("[0-9]+")
-				ntaskgetiterate := (re.FindAllString(taskgetiterate, -1))
-				i64iterate, _ = strconv.ParseInt(ntaskgetiterate[len(ntaskgetiterate)-1], 10, 32)
-				log.Println("iterate times:", i64iterate)
+				case "return":
+					// get file name returned by taskexecute
+					filenameFreturn := strings.Replace(sshpayload.String(), " ", "", -1)
+					filenameFreturn = strings.TrimSuffix(filenameFreturn, "\n")
 
-			case "return":
-				// get file name returned by taskexecute
-				filenameFreturn := strings.Replace(sshpayload.String(), " ", "", -1)
-				filenameFreturn = strings.TrimSuffix(filenameFreturn, "\n")
+					sshpayload.Reset()
+					log.Println("return filename:", filenameFreturn)
 
-				sshpayload.Reset()
-				log.Println("return filename:", filenameFreturn)
+					copyReturnFile(sftp, filenameFreturn, dstPath)
+					if err != nil {
+						log.Fatal(err)
+					}
+					icountFiles = icountFiles + 1
 
-				copyReturnFile(sftp, filenameFreturn, dstPath)
-				if err != nil {
-					log.Fatal(err)
+				case "sshlistvms":
+					getsshlistvmsstr := strings.Replace(sshpayload.String(), " ", "", -1)
+					getsshlistvms = strings.Split(getsshlistvmsstr, "\n")
+
+				default:
+					getIndividualFile(sftp, getlistoftasks, dstPath)
+					if err != nil {
+						log.Fatal(err)
+					}
+					icountFiles = icountFiles + 1
 				}
-				icountFiles = icountFiles + 1
-
-			case "sshlistvms":
-				getsshlistvmsstr := strings.Replace(sshpayload.String(), " ", "", -1)
-				getsshlistvms = strings.Split(getsshlistvmsstr, "\n")
-
-			default:
-				getIndividualFile(sftp, getlistoftasks, dstPath)
-				if err != nil {
-					log.Fatal(err)
-				}
-				icountFiles = icountFiles + 1
 			}
 		}
+
+		// close sftp
+		sftp.Close()
+
+		// how long it was running
+		log.Printf("............................")
+		duration := time.Since(startTime)
+		log.Printf("Execution took %s", duration)
+		log.Printf("total files: %v", icountFiles)
+		log.Printf("total tasks: %v", icounttasks)
 	}
-
-	// close sftp
-	sftp.Close()
-
-	// how long it was running
-	log.Printf("............................")
-	duration := time.Since(startTime)
-	log.Printf("Execution took %s", duration)
-	log.Printf("total files: %v", icountFiles)
-	log.Printf("total tasks: %v", icounttasks)
 
 	log.Printf("...end")
 	os.Exit(3)
