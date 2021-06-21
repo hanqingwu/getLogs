@@ -97,7 +97,7 @@ func RealAllDirFile(sftp *sftp.Client, itemdstDirName string) (Listfilenamepaths
 	return Listfilenamepath
 }
 
-func getIndividualFile(sftp *sftp.Client, itemdstDirName string, dstPath string) (err error) {
+func getIndividualFile(sftp *sftp.Client, itemdstDirName string, dstPath, sshHost string) (err error) {
 	/* func get individual file
 
 	 */
@@ -114,6 +114,9 @@ func getIndividualFile(sftp *sftp.Client, itemdstDirName string, dstPath string)
 	filenamepathdstDir := filepath.Dir(itemdstDirName)
 	newdstPath := filepath.Join(dstPath, filenamepathdstDir)
 
+	//os.Mkdir(dstPath, os.ModePerm)
+	//	newdstPath := dstPath
+
 	if os.MkdirAll(newdstPath, os.ModePerm) != nil {
 		panic("Unable to create directory!")
 	}
@@ -122,7 +125,7 @@ func getIndividualFile(sftp *sftp.Client, itemdstDirName string, dstPath string)
 	filenamepathdstFile = re.ReplaceAllLiteralString(filenamepathdstFile, "_")
 
 	// create file destination
-	dstFile, err := os.Create(filepath.Join(newdstPath, filenamepathdstFile))
+	dstFile, err := os.Create(filepath.Join(newdstPath, sshHost+"-"+filenamepathdstFile))
 	if err != nil {
 		log.Fatal(err)
 
@@ -130,7 +133,7 @@ func getIndividualFile(sftp *sftp.Client, itemdstDirName string, dstPath string)
 
 	// Copy the file
 	srcFile.WriteTo(dstFile)
-	log.Println("file transferred:", filenamepathdstFile)
+	log.Println("file transferred:", sshHost+"-"+filenamepathdstFile)
 
 	// clean-up
 	dstFile.Close()
@@ -244,15 +247,15 @@ func main() {
 		}*/
 
 	sshHosts := strings.Split(yamlconfig.SSHHostname, ",")
+	t := time.Now()
+	dirtimename := (t.Format("20060102_150405"))
+	os.Mkdir(dirtimename, os.ModePerm)
 
 	for _, sshHost := range sshHosts {
 
 		sshHost = strings.TrimSpace(sshHost)
-		t := time.Now()
-		dirtimename := (t.Format("20060102_150405"))
-		os.Mkdir(dirtimename, os.ModePerm)
-
-		dstPath := filepath.Join(dirtimename, sshHost)
+		//		dstPath := filepath.Join(dirtimename, sshHost)
+		dstPath := dirtimename
 
 		//gey ssh keys
 		key, err := getKeyFile(yamlconfig)
@@ -325,7 +328,7 @@ func main() {
 						}
 
 						//  copy file from remote machine
-						getIndividualFile(sftp, filenamepathsrc, dstPath)
+						getIndividualFile(sftp, filenamepathsrc, dstPath, sshHost)
 						if err != nil {
 							log.Fatal(err)
 						}
@@ -340,7 +343,7 @@ func main() {
 				for _, itemdstDirName := range ldstDirName {
 
 					//  copy file from remote machine
-					getIndividualFile(sftp, itemdstDirName, dstPath)
+					getIndividualFile(sftp, itemdstDirName, dstPath, sshHost)
 					if err != nil {
 						log.Fatal(err)
 					}
@@ -497,7 +500,7 @@ func main() {
 					getsshlistvms = strings.Split(getsshlistvmsstr, "\n")
 
 				default:
-					getIndividualFile(sftp, getlistoftasks, dstPath)
+					getIndividualFile(sftp, getlistoftasks, dstPath, sshHost)
 					if err != nil {
 						log.Fatal(err)
 					}
