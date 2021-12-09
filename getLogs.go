@@ -16,11 +16,12 @@ import (
 	"time"
 
 	"github.com/pkg/sftp"
+	"github.com/ulikunitz/xz"
 	"golang.org/x/crypto/ssh"
 	"gopkg.in/yaml.v2"
 )
 
-const applVersion = "version:0.0.8"
+const applVersion = "version:0.1.1"
 
 type yamlinstanceConfig struct {
 	SSHHostname  string `yaml:"remote_ipaddr"`
@@ -139,7 +140,45 @@ func getIndividualFile(sftp *sftp.Client, itemdstDirName string, dstPath, sshHos
 	dstFile.Close()
 	srcFile.Close()
 
+	postProcessFile(newdstPath, sshHost+"-"+filenamepathdstFile)
+
 	return err
+}
+
+func postProcessFile(dir, path string) {
+
+	//decompress file
+	if filepath.Ext(path) == ".xz" {
+
+		fileXz, err := os.Open(filepath.Join(dir, path))
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		defer fileXz.Close()
+
+		r, err := xz.NewReader(fileXz)
+		if err != nil {
+			log.Fatalf("NewReader error %s", err)
+		}
+
+		filenamepathdstFileNoXz := strings.TrimSuffix(path, ".xz")
+		fileNoXz, err := os.Create(filepath.Join(dir, filenamepathdstFileNoXz))
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		defer fileNoXz.Close()
+
+		n, err := io.Copy(fileNoXz, r)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		log.Printf("xz %v decompress -> %v (%v)bytes", path, filenamepathdstFileNoXz, n)
+
+	}
+
 }
 
 func copyReturnFile(sftp *sftp.Client, itemdstDirName string, dstPath string) (err error) {
@@ -172,6 +211,7 @@ func copyReturnFile(sftp *sftp.Client, itemdstDirName string, dstPath string) (e
 	dstFile.Close()
 	srcFile.Close()
 
+	postProcessFile(dstPath, filenamepathdstFile)
 	return err
 }
 
@@ -253,6 +293,7 @@ func main() {
 
 	for _, sshHost := range sshHosts {
 
+		log.Printf("get from addr :%v \n", sshHost)
 		sshHost = strings.TrimSpace(sshHost)
 		//		dstPath := filepath.Join(dirtimename, sshHost)
 		dstPath := dirtimename
@@ -275,6 +316,7 @@ func main() {
 
 		sshConfig.SetDefaults()
 
+		//log.Printf("ssh host %v port %v, config %+v\n", sshHost, yamlconfig.SSHPort, sshConfig)
 		sshclient, err := ssh.Dial("tcp", sshHost+":"+yamlconfig.SSHPort, sshConfig)
 		if err != nil {
 			panic("Failed to dial: " + err.Error())
