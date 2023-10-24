@@ -4,6 +4,7 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"log"
@@ -287,11 +288,35 @@ func main() {
 		}*/
 
 	sshHosts := strings.Split(yamlconfig.SSHHostname, ",")
+	sshHostsScrub := []string{}
+
 	t := time.Now()
 	dirtimename := (t.Format("20060102_150405"))
 	os.Mkdir(dirtimename, os.ModePerm)
 
 	for _, sshHost := range sshHosts {
+		sshRanges := strings.Split(sshHost, "-")
+		if len(sshRanges) > 1 {
+			lastIp, _ := strconv.Atoi(sshRanges[1])
+			startIp := lastIp
+			startIps := strings.Split(sshRanges[0], ".")
+			if len(startIps) == 4 {
+				startIp, _ = strconv.Atoi(startIps[3])
+			} else {
+				continue
+			}
+
+			for i := startIp; i <= lastIp; i++ {
+				host := fmt.Sprintf("%s.%s.%s.%d", startIps[0], startIps[1], startIps[2], i)
+				sshHostsScrub = append(sshHostsScrub, host)
+			}
+
+		} else {
+			sshHostsScrub = append(sshHostsScrub, sshHost)
+		}
+	}
+
+	for _, sshHost := range sshHostsScrub {
 
 		log.Printf("get from addr :%v \n", sshHost)
 		sshHost = strings.TrimSpace(sshHost)
@@ -299,23 +324,25 @@ func main() {
 		dstPath := dirtimename
 
 		//gey ssh keys
-		key, err := getKeyFile(yamlconfig)
-		if err != nil {
-			log.Fatal(err)
-
-		}
+		/*
+			key, err := getKeyFile(yamlconfig)
+			if err != nil {
+				log.Fatal(err)
+			}
+		*/
 
 		// ssh prepare connection
 		sshConfig := &ssh.ClientConfig{
 			User:            yamlconfig.SSHUsername,
 			HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 			Auth: []ssh.AuthMethod{
-				ssh.Password(yamlconfig.SSHPassword), ssh.PublicKeys(key),
+				ssh.Password(yamlconfig.SSHPassword), // ssh.PublicKeys(key),
 			},
 		}
 
 		sshConfig.SetDefaults()
 
+		//log.Printf("yamlconfig passwd %+v\n", yamlconfig.SSHPassword)
 		//log.Printf("ssh host %v port %v, config %+v\n", sshHost, yamlconfig.SSHPort, sshConfig)
 		sshclient, err := ssh.Dial("tcp", sshHost+":"+yamlconfig.SSHPort, sshConfig)
 		if err != nil {
@@ -465,8 +492,9 @@ func main() {
 
 						icounttasks = icounttasks + 1
 						sshsession.Stdout = &sshpayload
+
 						if err := sshsession.Run(getlistoftasks); err != nil {
-							log.Fatal("Failed to run: " + err.Error())
+							log.Printf("Failed to run: %v ", err.Error())
 							log.Println(sshpayload.String())
 						}
 					}
@@ -490,6 +518,7 @@ func main() {
 
 							icounttasks = icounttasks + 1
 							sshsession.Stdout = &sshpayload
+							log.Printf("cmd %v \n", getlistoftasksiter)
 							if err := sshsession.Run(getlistoftasksiter); err != nil {
 								log.Fatal("Failed to run: " + err.Error())
 								log.Println(sshpayload.String())
