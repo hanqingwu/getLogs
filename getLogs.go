@@ -540,6 +540,14 @@ func main() {
 
 				case "console":
 					log.Println("\n", sshpayload.String())
+
+					dstFile, err := os.Create(filepath.Join(dstPath, sshHost+"-"+keysorted))
+					if err != nil {
+						log.Fatal(err)
+					}
+					dstFile.Write(sshpayload.Bytes())
+					dstFile.Close()
+
 					sshpayload.Reset()
 
 				case "none":
