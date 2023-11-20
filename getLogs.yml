@@ -10,24 +10,26 @@
 ###############################
 
 description: ssh config
-remote_ipaddr: "127.0.0.1"
+remote_ipaddr: "172.18.155.100-109" #5.100"
+    #remote_ipaddr: "172.18.172.200" #5.100"
 ssh_port: 22
-ssh_key: "ctrlkey.pem"
+  #ssh_key: "ctrlkey.pem"
 username: "root"
-password: ""
+  #password: "bosssoft2022" #jsjg2023"
+password: "jsjg2023" #jsjg2023"
 
 description: get logs files by ssh/sftp , in alphabetical order, data,filesindividual ,....
 getfiles:
 
-  filesindividual:
-    - /etc/maria.cnf
-    - /etc/hosts
+  #  filesindividual:
+  #    - /etc/maria.cnf
+  #    - /etc/hosts
 
-  root:
-    - /root/*.log
+      #  root:
+      #    - /root/*.log
 
-  var:
-    - /var/log
+      #  var:
+      #    - /var/log
 
 
 description: exceptfiles
@@ -39,24 +41,34 @@ description: task list
 executetasks:
 
   task0001:
-    taskexecute: "uptime;dmesg | tail;vmstat 1 1;mpstat -P ALL 1 1;pidstat 1 1;iostat -xz 1 1;free -m;sar -n DEV 1 1;sar -n TCP,ETCP 1 1" 
+    taskexecute: "uptime" 
     taskget: "console"
 
   task0002:
-    taskexecute: "sosreport --batch | grep ' /var/tmp/sosreport-'"
-    taskget: "return"
-
-  task0003:
-    taskexecute: "rm -r -f /var/tmp/sosreport-*"
-    taskget: "none"
-
-  task0004:
-    taskexecute: "cat /etc/hosts | grep '.local ' | awk '{print $3}'"
-    taskget: "sshlistvms"
-
-  task0005:
-    taskexecute: "sshlistvms:uptime;dmesg | tail;vmstat 1 1;mpstat -P ALL 1 1;pidstat 1 1;iostat -xz 1 1;free -m;sar -n DEV 1 1;sar -n TCP,ETCP 1 1" 
+    taskexecute: "top -bcn1 -w200 | head -n 24" 
     taskget: "console"
+
+      #  task0003:
+      #    taskexecute: "cat /tmp/top_result" 
+     # taskget: "console"
+
+
+
+      #  task0002:
+      #    taskexecute: "sosreport --batch | grep ' /var/tmp/sosreport-'"
+      #    taskget: "return"
+
+      #  task0003:
+      #    taskexecute: "rm -r -f /var/tmp/sosreport-*"
+      #    taskget: "none"
+
+      #      #  task0004:
+      #    taskexecute: "cat /etc/hosts | grep '.local ' | awk '{print $3}'"
+      #    taskget: "sshlistvms"
+
+      #  task0005:
+      #    taskexecute: "sshlistvms:uptime;dmesg | tail;vmstat 1 1;mpstat -P ALL 1 1;pidstat 1 1;iostat -xz 1 1;free -m;sar -n DEV 1 1;sar -n TCP,ETCP 1 1" 
+      #    taskget: "console"
 
 
 
