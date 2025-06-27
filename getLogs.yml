@@ -41,16 +41,20 @@ description: task list
 executetasks:
 
   task0001:
-    taskexecute: "uptime" 
+    taskexecute: "hostname && uptime" 
     taskget: "console"
 
   task0002:
     taskexecute: "top -bcn1 -w200 | head -n 24" 
     taskget: "console"
 
-      #  task0003:
-      #    taskexecute: "cat /tmp/top_result" 
-     # taskget: "console"
+  task0003:
+    taskexecute: "df -h | grep -v overlay | grep -v tmpfs | grep -v shm"
+    taskget: "console"
+
+  task0003:
+    taskexecute: "docker system df"
+    taskget: "console"
 
 
 
